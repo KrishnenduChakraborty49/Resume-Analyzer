@@ -1,48 +1,57 @@
 package com.substring.resume.analyzer.controllers;
 
-import com.substring.resume.analyzer.payload.ResumeAnalysisResult;
-import com.substring.resume.analyzer.services.ResumeGeneratorService;
-import com.substring.resume.analyzer.services.ResumeService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
+import com.substring.resume.analyzer.entity.ResumeData;
+import com.substring.resume.analyzer.repository.ResumeRepository;
+import com.substring.resume.analyzer.services.OllamaService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
+import java.util.Map;
 
 @RestController
-@RequestMapping("api/v1/resume")
-@RequiredArgsConstructor
+@RequestMapping("/api/resume")
 public class ResumeController {
-    private  final ResumeService resumeService;
-    private final ResumeGeneratorService resumeGeneratorService;
-    @PostMapping
-    public ResponseEntity<?> analyzeResume(
-            @RequestParam("resume") MultipartFile resumeFile,
-            @RequestParam("jobProfile") String jobProfile
-    ) throws IOException {
 
-        ResumeAnalysisResult result = resumeService.analyzeResume(resumeFile, jobProfile);
-        return  new ResponseEntity<>(result, HttpStatus.OK);
+    @Autowired private ResumeRepository repository;
+    @Autowired private OllamaService ollamaService;
 
-
+    @PostMapping("/generate")
+    public ResponseEntity<?> save(@RequestBody ResumeData data) {
+        return ResponseEntity.ok(repository.save(data));
     }
 
-    @GetMapping("/{id}/generate-pdf")
-    public ResponseEntity<byte[]> downloadResume(@PathVariable Long id) {
-        try {
-            byte[] pdfContent = resumeGeneratorService.generatePdf(id);
+    @GetMapping("/{id}")
+    public ResponseEntity<?> get(@PathVariable Long id) {
+        return repository.findById(id).map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
 
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=Improved_Resume.pdf")
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .body(pdfContent);
+    @GetMapping("/all")
+    public ResponseEntity<?> all() {
+        return ResponseEntity.ok(repository.findAllByOrderByCreatedAtDesc());
+    }
 
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id) {
+        repository.deleteById(id);
+        return ResponseEntity.ok(Map.of("deleted", true));
+    }
+
+    // AI-powered summary generation endpoint
+    @PostMapping("/generate-summary")
+    public ResponseEntity<?> generateSummary(@RequestBody Map<String, String> body) {
+        String name = body.getOrDefault("name", "");
+        String domain = body.getOrDefault("domain", "Software Engineer");
+        String skills = body.getOrDefault("skills", "");
+
+        String system = "You are a professional resume writer. Write concise, impactful summaries. " +
+            "Return ONLY the summary text, no quotes, no labels, no extra text.";
+        String prompt = "Write a 3-sentence professional summary for a resume.\n" +
+            "Name: " + name + "\nDomain: " + domain + "\nKey Skills: " + skills + "\n" +
+            "Make it ATS-friendly and results-oriented.";
+
+        String summary = ollamaService.chat(system, prompt);
+        return ResponseEntity.ok(Map.of("summary", summary.trim()));
     }
 }
